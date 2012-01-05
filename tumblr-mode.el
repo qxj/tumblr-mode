@@ -39,6 +39,7 @@
 
 (require 'url)
 (require 'xml)
+(require 'cl)
 
 (defcustom tumblr-hostname nil
   "Your blog host name, such as test.tumblr.com")
@@ -55,7 +56,23 @@
 
 (defvar tumblr-retrieve-posts-num-once 20)
 (defvar tumblr-retrieve-posts-list nil)
-(defvar tumblr-mode-map (make-sparse-keymap))
+
+(defvar tumblr-mode-map
+  (let ((map (make-keymap)))
+    (suppress-keymap map)
+    (define-key map (kbd "n") 'next-line)
+    (define-key map (kbd "p") 'previous-line)
+    (define-key map (kbd "q") 'bury-buffer)
+    map)
+  "keymap for `tumblr-mode'.")
+
+(defvar tumblr-post-mode-map
+  (let ((map (make-keymap)))
+    (define-key map (kbd "C-c C-s") (lambda ()
+                                      (tumblr-save-post)
+                                      (set-buffer-modified-p nil)))
+    map)
+  "keymap for `tumblr-post-mode'.")
 
 ;; utilities
 (defun assocref (item alist)
@@ -92,6 +109,8 @@
   (let* ((url-request-method "POST")
          (url-http-attempt-keepalives nil)
          (url-mime-charset-string "utf-8;q=0.7,*;q=0.7")
+         (url-request-extra-headers
+          '(("Content-Type" . "application/x-www-form-urlencoded")))
          (url-request-data (tumblr-query-string
                             (append `(("email" . ,tumblr-email)
                                       ("password" . ,tumblr-password)
@@ -111,7 +130,7 @@
     root))
 
 (defun tumblr-write-post (hostname params)
-  "PARAMS is a list "
+  "PARAMS is alist containing request queries."
   (let* ((url-request-method "POST")
          (url-http-attempt-keepalives nil)
          (url-mime-charset-string "utf-8;q=0.7,*;q=0.7")
@@ -130,7 +149,7 @@
                   "http://www.tumblr.com/api/write"
                   (lambda (&rest args)
                     (let ((buffer (current-buffer)))
-                      (switch-to-buffer buffer)
+                      (set-window-buffer nil buffer)
                       (with-current-buffer buffer
                         (goto-char (point-min))
                         ;; take from twittering-mode.el
@@ -162,7 +181,7 @@
   (let* ((root (tumblr-authenticated-read-xml-root
                 tumblr-hostname
                 `(("num" . ,(number-to-string retrieving))
-                  ("filter" . "none")
+                  ("filter" . "text")
                   ("tagged" . ,tagged)
                   ("state" . ,state))))
          (tumblr (car root))
@@ -209,8 +228,6 @@
                       (tumblr-list-posts-internal retrieving tagged state)))))
     ;; list all posts
     (with-current-buffer (get-buffer-create "*tumblr-mode*")
-      (tumblr-mode-setup)
-      ;; (toggle-read-only 1)
       (goto-char (point-min))
       (save-excursion
         (kill-region (point-min) (point-max))
@@ -244,13 +261,13 @@
 
       ;; skip header
       (forward-line)
-      (toggle-read-only t)
-      (set-window-buffer nil (current-buffer)))))
+      (set-window-buffer nil (current-buffer))
+      (tumblr-mode))))
 
 (defun tumblr-get-post (post-id)
   (let* ((root (tumblr-authenticated-read-xml-root
                 tumblr-hostname
-                `(("post-id" . ,post-id)
+                `(("id" . ,post-id)
                   ("filter" . "none"))))
          (tumblr (car root))
          (posts (car (xml-get-children tumblr 'posts)))
@@ -260,10 +277,10 @@
          (body (caddar (xml-get-children post 'regular-body))) ; post content
          (tags (mapcar (lambda (tag) (caddr tag))
                        (xml-get-children post 'tag)))
-         (buffer (get-buffer-create (format "*tumbr: %s*" title))))
+         (buffer (get-buffer-create (format "*tumblr: %s*" title))))
     ;; edit post
     (with-current-buffer buffer
-      (tumblr-mode-setup)
+      (tumblr-post-mode)
       (goto-char (point-min))
       (save-excursion
         (kill-region (point-min) (point-max))
@@ -271,7 +288,7 @@
         (tumblr-insert-post-template title attrs tags)
         ;; insert content
         (insert body)))
-    (switch-to-buffer buffer)))
+    (set-window-buffer nil buffer)))
 
 (defun tumblr-insert-post-template (title &optional attrs-alist tags-list)
   (insert "--\n")
@@ -318,7 +335,7 @@
                                 lines))))))
          ;; get body content
          (body (buffer-substring-no-properties body-start (point-max)))
-         (id (assocref "id" props))
+         (id (or id (assocref "id" props)))
          (title (assocref "title" props))
          (tags (assocref "tags" props))
          (date (assocref "date" props)))
@@ -326,7 +343,7 @@
                           (if id "Save" "Create") title tags))
         (tumblr-write-post
          tumblr-hostname
-         `(("post-id" . ,id)
+         `(("post-id" . ,id)            ; WTF..api/read is "id", but api/write is "post-id"
            ("title" . ,title)
            ("body" . ,body)
            ("tags" . ,tags)
@@ -334,7 +351,7 @@
 
 (defun tumblr-new-post (title)
   (interactive "sCreate post title: \n")
-  (switch-to-buffer (format "*Tumblr: %s*" title))
+  ( (format "*Tumblr: %s*" title))
   (tumblr-insert-post-template title
                                '((slug . " ")
                                  (state . "published")))
@@ -342,23 +359,28 @@
       (markdown-mode)
     (message "Recommand to apply markdown-mode for tumblr post writing.")))
 
-(defun tumblr-mode-setup ()
+;; (put 'tumblr-mode 'mode-class 'special)
+
+(defun tumblr-mode ()
   (kill-all-local-variables)
-  (setq major-mode 'tumblr-mode)
-  ;; (setq buffer-read-only t)
   (buffer-disable-undo)
-  (setq mode-name "tumblr-mode")
-  (setq mode-line-buffer-identification
+  (setq major-mode 'tumblr-mode
+        mode-name "tumblr-mode"
+        mode-line-buffer-identification
         (append (default-value 'mode-line-buffer-identification)
                 '((format " [%s] " tumblr-hostname))))
   (make-local-variable 'tumblr-retrieve-posts-list)
   (use-local-map tumblr-mode-map)
-  (run-hooks 'tumblr-mode-hook))
+  (run-mode-hooks 'tumblr-mode-hook))
 
-(if tumblr-mode-map
-    (let ((tm tumblr-mode-map))
-      (define-key tm (kbd "q") 'bury-buffer)
-      nil))
+(define-minor-mode tumblr-post-mode
+  "A minor mode for tumblr post, see \\[tumblr-new-post] and
+\\[tumblr-save-post]"
+  :init-value nil
+  :lighter " Tumblr"
+  :keymap tumblr-post-mode-map
+  :group 'tumblr)
 
 (provide 'tumblr-mode)
-;;; tumblr.el ends here
+
+;;; tumblr-mode.el ends here
