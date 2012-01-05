@@ -138,12 +138,13 @@
          (url-request-extra-headers
           '(("Content-Type" . "application/x-www-form-urlencoded")))
          (url-request-data (tumblr-query-string
-                            (append `(("email" . ,tumblr-email)
+                            (append params
+                                    `(("email" . ,tumblr-email)
                                       ("password" . ,tumblr-password)
                                       ("group" . ,hostname)
                                       ("type" . ,tumblr-post-type)
                                       ("format" . ,tumblr-post-format)
-                                      ("generator" . "tumblr-mode.el")) params)))
+                                      ("generator" . "tumblr-mode.el")))))
          (coding-system-for-read 'utf-8)
          (coding-system-for-write 'utf-8)
          (buffer (url-retrieve
@@ -281,14 +282,14 @@
          (buffer (get-buffer-create (format "*tumblr: %s*" title))))
     ;; edit post
     (with-current-buffer buffer
-      (tumblr-post-mode)
       (goto-char (point-min))
       (save-excursion
         (kill-region (point-min) (point-max))
         ;; insert meta info, as octopress does
         (tumblr-insert-post-template title attrs tags)
         ;; insert content
-        (insert body)))
+        (insert body))
+      (tumblr-prepare-post-edit))
     (set-window-buffer nil buffer)))
 
 (defun tumblr-insert-post-template (title &optional attrs-alist tags-list)
@@ -310,6 +311,27 @@
   (tumblr-get-post (button-get button 'id)))
 
 (defun tumblr-save-post (&optional id)
+  "Save post to tumblr.com. Below options are accepted as post
+header:
+
+- `title' Post's title, required
+- `post-id' Post's identity, required when edit a post
+- `group' The hostname the post will be posted to, it will override `tumblr-hostname', optional
+- `tags' Tags seperated by comma, optional
+- `slug' Slug for friendly url, optional
+- `state' published/draft/submission/queue, optional
+- `date' When the post is posted, optional
+
+One example of the post buffer:
+
+--
+title: a post writed by tumblr-mode.el
+group: test.tumblr.com
+tags: tumblr, emacs
+--
+
+blah..blah..blah
+"
   (interactive)
   (let* ((body-start (point-min))
          ;; get meta properities
@@ -345,18 +367,30 @@
          (id (or id (assocref "id" props)))
          (title (assocref "title" props))
          (tags (assocref "tags" props))
-         (date (assocref "date" props)))
+         (date (assocref "date" props))
+         (group (assocref "group" props))
+         (state (assocref "state" props))
+         (slug (assocref "slug" props)))
     (if (y-or-n-p (format "%s post %s?%s"
                           (if id "Save" "Create")
                           title
                           (if tags (format " tags: %s." tags) "")))
         (tumblr-write-post
-         tumblr-hostname
+         (if (or (null group) (string= "" group))
+             tumblr-hostname group)
          `(("post-id" . ,id)            ; WTF..api/read is "id", but api/write is "post-id"
            ("title" . ,title)
            ("body" . ,body)
            ("tags" . ,tags)
-           ("date" . ,date))))))
+           ("date" . ,date)
+           ("slug" . ,slug)
+           ("state" . ,state))))))
+
+(defun tumblr-prepare-post-edit ()
+  (if (fboundp 'markdown-mode)
+      (markdown-mode)
+    (message "Recommand to apply markdown-mode for tumblr post writing."))
+  (tumblr-post-mode 1))
 
 (defun tumblr-new-post (title)
   (interactive "sCreate post title: \n")
@@ -364,9 +398,7 @@
   (tumblr-insert-post-template title
                                '((slug . " ")
                                  (state . "published")))
-  (if (fboundp 'markdown-mode)
-      (markdown-mode)
-    (message "Recommand to apply markdown-mode for tumblr post writing.")))
+  (tumblr-prepare-post-edit))
 
 ;; (put 'tumblr-mode 'mode-class 'special)
 
