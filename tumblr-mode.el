@@ -69,7 +69,8 @@
 (defvar tumblr-post-mode-map
   (let ((map (make-keymap)))
     (define-key map (kbd "C-c C-s") (lambda ()
-                                      (tumblr-save-post)
+                                      (interactive)
+                                      (call-interactively 'tumblr-save-post)
                                       (set-buffer-modified-p nil)))
     map)
   "keymap for `tumblr-post-mode'.")
@@ -330,8 +331,14 @@
                              (lines (split-string lines-text "\r?\n" t))
                              prop)
                         (mapcar (lambda (line)
-                                  (when (string-match "\\([^:]+\\)[ \t]*:[ \t]*\\([^ ]+\\)" line)
-                                    `(,(match-string 1 line) . ,(match-string 2 line))))
+                                  (when (string-match "\\s-*\\([^:]+\\)\\s-*:\\s-*\\(.+\\)" line)
+                                    `(,(match-string 1 line)
+                                      .
+                                      ,((lambda (str) ; strip tail white space
+                                          (if (string-match "\\s-+$" str)
+                                              (replace-match "" t t str)
+                                            str))
+                                        (match-string 2 line)))))
                                 lines))))))
          ;; get body content
          (body (buffer-substring-no-properties body-start (point-max)))
@@ -339,8 +346,10 @@
          (title (assocref "title" props))
          (tags (assocref "tags" props))
          (date (assocref "date" props)))
-    (if (y-or-n-p (format "%s post %s? tags: %s."
-                          (if id "Save" "Create") title tags))
+    (if (y-or-n-p (format "%s post %s?%s"
+                          (if id "Save" "Create")
+                          title
+                          (if tags (format " tags: %s." tags) "")))
         (tumblr-write-post
          tumblr-hostname
          `(("post-id" . ,id)            ; WTF..api/read is "id", but api/write is "post-id"
