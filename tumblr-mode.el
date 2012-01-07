@@ -89,6 +89,7 @@
     (define-key map (kbd "n") 'next-line)
     (define-key map (kbd "p") 'previous-line)
     (define-key map (kbd "q") 'bury-buffer)
+    (define-key map (kbd "g") 'tumblr-list-posts)
     map)
   "keymap for `tumblr-mode'.")
 
@@ -121,29 +122,40 @@
              args "&"))
 
 (defun tumblr-get-hostname ()
-  (if (and (listp tumblr-hostnames) (car tumblr-hostnames))
-      (funcall (if (fboundp 'ido-completing-read)
-                   'ido-completing-read
-                 'completion-read)
-               "Choose hostname: " tumblr-hostnames nil nil nil nil
-               (car tumblr-hostnames))
-    (read-string "Tumblr hostname: ")))
+  (setq tumblr-current-hostname
+        (if (and (listp tumblr-hostnames) (car tumblr-hostnames))
+            (funcall (if (fboundp 'ido-completing-read)
+                         'ido-completing-read
+                       'completion-read)
+                     "Choose hostname: " tumblr-hostnames nil nil nil nil
+                     (car tumblr-hostnames))
+          (read-string "Tumblr hostname: "))))
 
 (defun tumblr-get-tag ()
-  (read-string "Choose a tag: " nil '(tumblr-current-tag)))
+  (setq tumblr-current-tag
+        (read-string "Choose a tag: " nil '(tumblr-current-tag))))
 
 (defun tumblr-get-state ()
-  (funcall (if (fboundp 'ido-completing-read)
-               'ido-completing-read
-             'completion-read)
-           "Choose state: " tumblr-post-status nil nil nil nil
-           (car tumblr-post-status)))
+  (setq tumblr-current-state
+        (funcall (if (fboundp 'ido-completing-read)
+                     'ido-completing-read
+                   'completion-read)
+                 "Choose state: " tumblr-post-status nil nil nil nil
+                 (car tumblr-post-status))))
 
 (defun tumblr-get-email ()
-  (or tumblr-email (read-string "Tumblr email: ")))
+  (or tumblr-email (setq tumblr-email (read-string "Tumblr email: "))))
 
 (defun tumblr-get-password ()
-  (or tumblr-password (read-passwd "Tumblr password: ")))
+  (or tumblr-password (setq tumblr-password (read-passwd "Tumblr password: "))))
+
+;; tumblr format
+(defun tumblr-list-posts-format (width content)
+  (let ((fmt (format "%%-%d.%ds" width (decf width))))
+    (format fmt content)))
+
+(defun tumblr-mode-line-title-format (title)
+  (format "*tumblr: %s*" title))
 
 ;; http functions
 (defun tumblr-authenticated-read-xml-root (hostname params)
@@ -173,6 +185,7 @@
 (defun tumblr-write-post (hostname params)
   "Post data to HOSTNAME, PARAMS is alist containing request data."
   (let* ((url-request-method "POST")
+         (url-max-redirecton -1)
          (url-http-attempt-keepalives nil)
          (url-mime-charset-string "utf-8;q=0.7,*;q=0.7")
          (url-request-extra-headers
@@ -186,38 +199,38 @@
                                       ("format" . ,tumblr-post-format)
                                       ("generator" . "tumblr-mode.el")))))
          (coding-system-for-read 'utf-8)
-         (coding-system-for-write 'utf-8)
-         (buffer (url-retrieve
-                  "http://www.tumblr.com/api/write"
-                  (lambda (&rest args)
-                    (let ((buffer (current-buffer)))
-                      (set-window-buffer nil buffer)
-                      (with-current-buffer buffer
-                        (goto-char (point-min))
-                        ;; take from twittering-mode.el
-                        (when (search-forward-regexp
-                               "\\`\\(\\(HTTP/1\.[01]\\) \\([0-9][0-9][0-9]\\) \\(.*?\\)\\)\r?\n"
-                               nil t)
-                          (let ((status-line (match-string 1))
-                                (http-version (match-string 2))
-                                (status-code (match-string 3))
-                                (reason-phrase (match-string 4)))
-                            (cond
-                             ((string= "201" status-code)
-                              (search-forward-regexp "\r?\n\r?\n" nil t)
-                              (let* ((beg (match-end 0))
-                                     (end (point-max))
-                                     (post-id (buffer-substring beg end)))
-                                ;; get post-id
-                                (message "Post OK. return id: %s" post-id)))
-                             ((string= "403" status-code)
-                              (message "Failed. Your email address or password were incorrect."))
-                             ((string= "400" status-code)
-                              (message "Failed. There was at least one error while trying to save your post."))
-                             (t
-                              (error (format "Unknown failure, maybe network exception :(")))))))
-                      (kill-buffer buffer))))))
-    (kill-buffer buffer)))
+         (coding-system-for-write 'utf-8))
+    (url-retrieve
+     "http://www.tumblr.com/api/write"
+     (lambda (&rest args)
+       (message "url-retrieve callback status")
+       (let ((buffer (current-buffer)))
+         (set-window-buffer nil buffer)
+         (with-current-buffer buffer
+           (goto-char (point-min))
+           ;; take from twittering-mode.el
+           (when (search-forward-regexp
+                  "\\`\\(\\(HTTP/1\.[01]\\) \\([0-9][0-9][0-9]\\) \\(.*?\\)\\)\r?\n"
+                  nil t)
+             (let ((status-line (match-string 1))
+                   (http-version (match-string 2))
+                   (status-code (match-string 3))
+                   (reason-phrase (match-string 4)))
+               (cond
+                ((string= "201" status-code)
+                 (search-forward-regexp "\r?\n\r?\n" nil t)
+                 (let* ((beg (match-end 0))
+                        (end (point-max))
+                        (post-id (buffer-substring beg end)))
+                   ;; get post-id
+                   (message "Post OK. return id: %s" post-id)))
+                ((string= "403" status-code)
+                 (message "Failed. Your email address or password were incorrect."))
+                ((string= "400" status-code)
+                 (message "Failed. There was at least one error while trying to save your post."))
+                (t
+                 (error (format "Unknown failure, maybe network exception :(")))))))
+         (kill-buffer buffer))))))
 
 ;; tumblr functions
 (defun tumblr-get-posts-count (hostname &optional tagged state)
@@ -262,10 +275,6 @@
                   (tags         .   ,tags))))
             post-list)))
 
-(defun tumblr-list-posts-format (width content)
-  (let ((fmt (format "%%-%d.%ds" width (decf width))))
-    (format fmt content)))
-
 (defun tumblr-list-posts (&optional choose)
   "List all regular posts of your hostname.
 
@@ -275,7 +284,11 @@ Default hostname/tag/state can be specified with
 
 If \\[tumblr-list-posts] is called with a argument, other
 hostname/tag/state can also be specified to override default
-settings temporarily."
+settings temporarily.
+
+\\[tumblr-list-posts] retrieves posts from tumblr.com
+synchronously, during this period, Emacs will seems to hang up
+some minutes."
   (interactive (list current-prefix-arg))
   (let* ((hostname (if choose
                        (tumblr-get-hostname)
@@ -295,10 +308,6 @@ settings temporarily."
                                  tumblr-retrieve-posts-num-total) total))
          (remaining total-retrieving)
          (tumblr-retrieve-posts-list nil))
-    ;; update current environment
-    (setq tumblr-current-hostname hostname
-          tumblr-current-tag tagged
-          tumblr-current-state state)
     ;; retrieve posts
     (while (> remaining 0)
       (let ((retrieving (if (> remaining tumblr-retrieve-posts-num-once)
@@ -313,9 +322,9 @@ settings temporarily."
       (goto-char (point-min))
       (save-excursion
         (kill-region (point-min) (point-max))
-        (let ((title-len 50)
+        (let ((title-len 48)            ; keep less than 80 columns
               (tags-len  20)
-              (date-len  10))
+              (date-len  11))
           ;; header
           (save-excursion
             (insert (tumblr-list-posts-format title-len "Title"))
@@ -362,7 +371,7 @@ settings temporarily."
          (body (caddar (xml-get-children post 'regular-body))) ; post content
          (tags (mapcar (lambda (tag) (caddr tag))
                        (xml-get-children post 'tag)))
-         (buffer (get-buffer-create (format "*tumblr: %s*" title))))
+         (buffer (get-buffer-create (tumblr-mode-line-title-format title))))
     ;; edit post
     (with-current-buffer buffer
       (goto-char (point-min))
@@ -484,7 +493,7 @@ blah..blah..blah
 
 (defun tumblr-new-post (title)
   (interactive "sCreate post title: \n")
-  (switch-to-buffer (format "*Tumblr: %s*" title))
+  (switch-to-buffer (tumblr-mode-line-title-format title))
   (tumblr-insert-post-template title
                                '((slug . " ")
                                  (state . "published"))
