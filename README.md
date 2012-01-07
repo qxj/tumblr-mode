@@ -1,21 +1,23 @@
 ## Install
 
-Download `tumblr-mode.el` into your `load-path`, then following code in
-to your `~/.emacs`:
+Download `tumblr-mode.el` into your `load-path`, then add following code
+into your `~/.emacs`:
 
     (require 'tumblr-mode)
 
-And specify your tumblr settings:
+And you can also specify your tumblr settings in `~/.emacs', it's
+optional:
 
 - `tumblr-email` registered email in tumblr.com
 - `tumblr-password` registered password in tumblr.com
-- `tumblr-hostname` the group name you want to post
+- `tumblr-hostnames` the group name you want to post
 
 For example:
 
-    (setq tumblr-email xxx@gmail.com
-          tumblr-password yyy
-          tumblr-hostname zzz.tumblr.com)
+    (setq tumblr-email "xxx@gmail.com"
+          tumblr-password "yyy"
+          tumblr-hostnames '("zzz.tumblr.com"
+                             "zzz.customize-domain.com"))
 
 **Notice**: Tumblr API does not supply *HTTPS* connection neither v1 nor
 v2, so please make sure your network environment is safe, and take care
@@ -36,6 +38,7 @@ You can also specify title, tags, etc. in the header of the post (as
 
     --
     title: one owesome article from tumblr-mode
+    group: zzz.tumblr.com
     tags: tumblr-mode, emacs
     state: published
     --
