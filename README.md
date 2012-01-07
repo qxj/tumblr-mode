@@ -29,6 +29,9 @@ your password at your own risk.
 You can list all your regular posts by `M-x tumblr-list-posts` in a
 buffer named `*tumblr-mode*`, then you can view and edit them.
 
+If you want to list posts by specified hostname, tag and state, call
+`C-u M-x tumblr-list-posts`.
+
 ### Create posts
 
 Call `M-x tumblr-new-post` and give it a title to create a new post.

@@ -59,7 +59,7 @@
   "tumblr login password"
   :type 'string
   :group 'tumblr-mode)
-(defcustom tumblr-post-type "regular"
+(defcustom tumblr-post-type "text"
   "tumblr post type"
   :type 'string
   :group 'tumblr-mode)
@@ -77,6 +77,9 @@
 (defvar tumblr-current-state nil)
 
 (defvar tumblr-post-status '("published" "draft"))
+(defvar tumblr-post-types '("text" "quote" "photo" "link" "chat" "video" "audio"))
+(defvar tumblr-post-formats '("markdown" "html"))
+(defvar tumblr-request-filters '("text" "none"))
 (defvar tumblr-retrieve-posts-num-once 20)
 (defvar tumblr-retrieve-posts-list nil)
 
@@ -127,7 +130,7 @@
     (read-string "Tumblr hostname: ")))
 
 (defun tumblr-get-tag ()
-  (read-string "Choose a tag: " nil nil tumblr-current-tag))
+  (read-string "Choose a tag: " nil '(tumblr-current-tag)))
 
 (defun tumblr-get-state ()
   (funcall (if (fboundp 'ido-completing-read)
@@ -152,8 +155,7 @@
          (url-request-data (tumblr-query-string
                             (append params
                                     `(("email" . ,(tumblr-get-email))
-                                      ("password" . ,(tumblr-get-password))
-                                      ("type" . ,tumblr-post-type)))))
+                                      ("password" . ,(tumblr-get-password))))))
          (coding-system-for-read 'utf-8)
          (coding-system-for-write 'utf-8)
          (buffer (url-retrieve-synchronously (format "http://%s/api/read" hostname)))
@@ -222,7 +224,7 @@
   (let* ((root (tumblr-authenticated-read-xml-root
                 hostname
                 `(("num" . "1")
-                  ("filter" . "none")
+                  ("filter" . "text")
                   ("tagged" . ,tagged)
                   ("state" . ,state))))
          (tumblr (car root))
@@ -261,7 +263,7 @@
             post-list)))
 
 (defun tumblr-list-posts-format (width content)
-  (let ((fmt (format "%%-%d.%ds" width width)))
+  (let ((fmt (format "%%-%d.%ds" width (decf width))))
     (format fmt content)))
 
 (defun tumblr-list-posts (&optional choose)
@@ -313,15 +315,15 @@ settings temporarily."
         (kill-region (point-min) (point-max))
         (let ((title-len 50)
               (tags-len  20)
-              (date-len  10)
-              (ov (make-overlay (line-beginning-position) (line-end-position))))
+              (date-len  10))
           ;; header
           (save-excursion
             (insert (tumblr-list-posts-format title-len "Title"))
             (insert (tumblr-list-posts-format tags-len "Tags"))
             (insert (tumblr-list-posts-format date-len "Date"))
             (insert "\n"))
-          (overlay-put ov 'face 'header-line)
+          (overlay-put (make-overlay (line-beginning-position) (line-end-position))
+                       'face 'header-line)
           (forward-line)
           ;; list posts
           (mapc (lambda (post)
@@ -339,11 +341,13 @@ settings temporarily."
                                     'face 'default)
                   (insert "\n"))
                 tumblr-retrieve-posts-list)))
-
       ;; skip header
       (forward-line)
       (tumblr-mode hostname)
-      (set-window-buffer nil (current-buffer)))))
+      (set-window-buffer nil (current-buffer)))
+
+    (message "Retrieved total %d posts on %s, tagged %s, state: %s."
+             total-retrieving hostname tagged state)))
 
 (defun tumblr-get-post (post-id hostname)
   (let* ((root (tumblr-authenticated-read-xml-root
@@ -377,12 +381,14 @@ settings temporarily."
         (id (assqref 'id attrs-alist))
         (slug (assqref 'slug attrs-alist))
         (state (assqref 'state attrs-alist))
+        (format (assqref 'format attrs-alist))
         (tags (mapconcat (lambda (tag) tag) tags-list ", ")))
     (and id (insert (format "id: %s\n" id)))
     (and title (insert (format "title: %s\n" title)))
     (and slug (insert (format "slug: %s\n" slug)))
     (and group (insert (format "group: %s\n" group)))
     (and tags (insert (format "tags: %s\n" tags)))
+    (and format (insert (format "format: %s\n" format)))
     (and state (insert (format "state: %s\n" state)))
     (and date (insert (format "date: %s\n" date))))
   (insert "--\n\n"))
@@ -494,7 +500,7 @@ blah..blah..blah
         mode-name "tumblr-mode"
         mode-line-buffer-identification
         (append (default-value 'mode-line-buffer-identification)
-                '((format " [%s] " hostname))))
+                `(,(format " [%s] " hostname))))
   (make-local-variable 'tumblr-retrieve-posts-list)
   (use-local-map tumblr-mode-map)
   (run-mode-hooks 'tumblr-mode-hook))
