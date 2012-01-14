@@ -39,7 +39,6 @@
 
 (require 'url)
 (require 'xml)
-(require 'cl)
 
 (defgroup tumblr-mode nil
   "A major mode for Tumblr.com")
@@ -160,7 +159,7 @@
 ;; http functions
 (defun tumblr-authenticated-read-xml-root (hostname params)
   (let* ((url-request-method "POST")
-         (url-http-attempt-keepalives nil)
+         ;; (url-http-attempt-keepalives nil)
          (url-mime-charset-string "utf-8;q=0.7,*;q=0.7")
          (url-request-extra-headers
           '(("Content-Type" . "application/x-www-form-urlencoded")))
@@ -186,7 +185,7 @@
   "Post data to HOSTNAME, PARAMS is alist containing request data."
   (let* ((url-request-method "POST")
          (url-max-redirecton -1)
-         (url-http-attempt-keepalives nil)
+         ;; (url-http-attempt-keepalives nil)
          (url-mime-charset-string "utf-8;q=0.7,*;q=0.7")
          (url-request-extra-headers
           '(("Content-Type" . "application/x-www-form-urlencoded")))
@@ -275,7 +274,7 @@
                   (tags         .   ,tags))))
             post-list)))
 
-(defun tumblr-list-posts (&optional choose)
+(defun tumblr-list-posts (choose)
   "List all regular posts of your hostname.
 
 Default hostname/tag/state can be specified with
@@ -289,7 +288,7 @@ settings temporarily.
 \\[tumblr-list-posts] retrieves posts from tumblr.com
 synchronously, during this period, Emacs will seems to hang up
 some minutes."
-  (interactive (list current-prefix-arg))
+  (interactive "P")
   (let* ((hostname (if choose
                        (tumblr-get-hostname)
                      (or tumblr-current-hostname
