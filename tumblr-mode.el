@@ -1,6 +1,6 @@
 ;;; tumblr-mode.el --- Major mode for Tumblr
 ;;
-;; Copyright (C) 2011 Julian Qian
+;; Copyright (C) 2011, 2012 Julian Qian
 ;;
 ;; Author: Julian Qian <junist@gmail.com>
 ;; Created: Dec 25, 2011
@@ -8,7 +8,7 @@
 ;;
 ;; This file is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
-;; the Free Software Foundation; either version 2, or (at your option)
+;; the Free Software Foundation; either version 3, or (at your option)
 ;; any later version.
 ;;
 ;; This file is distributed in the hope that it will be useful,
@@ -34,6 +34,13 @@
 ;; - `tumblr-save-post' save buffer to tumblr.com
 ;; - `tumblr-list-posts' list tumblr posts in a buffer
 ;;
+;;; Install:
+;;
+;; Download and put `tumblr-mode.el' into your load-path, then use it in
+;; your ~/.emacs:
+;;
+;; (require 'tumblr-mode)
+;;
 
 ;;; Code:
 
@@ -50,11 +57,11 @@
       '\(\"myblog.tumblr.com\" \"myphoto.tumblr.com\"\)\)"
   :type '(repeat string)
   :group 'tumblr-mode)
-(defcustom tumblr-email nil
+(defcustom tumblr-email ""
   "tumblr login email"
   :type 'string
   :group 'tumblr-mode)
-(defcustom tumblr-password nil
+(defcustom tumblr-password ""
   "tumblr login password"
   :type 'string
   :group 'tumblr-mode)
@@ -74,6 +81,15 @@
 (defvar tumblr-current-hostname nil)
 (defvar tumblr-current-tag nil)
 (defvar tumblr-current-state nil)
+
+(defvar tumblr-post-header-delimiters '("--" . "--")
+  "A cons containing two flags, to indicate the header, aka. meta info section, of a post.
+
+Default are two \"--\", but you can replace them with \"<!--\"
+and \"-->\" for better markdown preview, eg:
+
+(setq tumblr-post-header-delimiters '(\"<!--\" . \"-->\"))
+")
 
 (defvar tumblr-post-status '("published" "draft"))
 (defvar tumblr-post-types '("text" "quote" "photo" "link" "chat" "video" "audio"))
@@ -384,7 +400,8 @@ some minutes."
     (set-window-buffer nil buffer)))
 
 (defun tumblr-insert-post-template (title &optional attrs-alist tags-list group)
-  (insert "--\n")
+  (if (car tumblr-post-header-delimiters)
+      (insert (format "%s\n" (car tumblr-post-header-delimiters))))
   (let ((date (assqref 'date attrs-alist))
         (id (assqref 'id attrs-alist))
         (slug (assqref 'slug attrs-alist))
@@ -399,7 +416,11 @@ some minutes."
     (and format (insert (format "format: %s\n" format)))
     (and state (insert (format "state: %s\n" state)))
     (and date (insert (format "date: %s\n" date))))
-  (insert "--\n\n"))
+
+  (if (cdr tumblr-post-header-delimiters)
+      (insert (format "%s\n\n" (cdr tumblr-post-header-delimiters)))
+    (error "cdr of `tumblr-post-header-delimiters' is a must,
+otherwise it cannot identify what's header of the post.")))
 
 (defun tumblr-get-post-edit (button)
   (tumblr-get-post (button-get button 'id) (button-get button 'group)))
@@ -437,13 +458,31 @@ blah..blah..blah
                                       (point)))
                         beg end)
                     (goto-char (point-min))           ; start to search
-                    (when (search-forward-regexp "--\r?\n" bound t)
-                      (setq beg (match-end 0))        ; meta info begin point
-                      (when (search-forward-regexp "--\r?\n" bound t)
-                        (setq end (match-beginning 0)) ; meta info end point
-                        (search-forward-regexp "[^\r\n]") ; search body
-                        (setq body-start (match-beginning 0))))
-                    (when (< beg end)                 ; found meta info
+
+                    ;; meta info begin point
+                    (if (and (car tumblr-post-header-delimiters)
+                             (search-forward-regexp
+                              (format "%s\r?\n" (car tumblr-post-header-delimiters)) bound t))
+                        (setq beg (match-end 0))
+                      (setq beg (point-min)))
+
+                    ;; meta info end point
+                    (if (and (cdr tumblr-post-header-delimiters)
+                             (search-forward-regexp
+                              (format "%s\r?\n" (cdr tumblr-post-header-delimiters)) bound t))
+                        (progn
+                          (setq end (match-beginning 0))
+                          )
+                      (error "Can't found the delimiter of post's header and body"))
+
+                    ;; meanwhile, we can get body start point
+                    (if (search-forward-regexp "[^\r\n]" nil t)
+                        (setq body-start (match-beginning 0))
+                      (setq body-start (point)))
+
+                    ;; found meta info
+                    (if (and (< beg end)
+                               (< end body-start))
                       (let* ((lines-text (buffer-substring-no-properties beg end))
                              (lines (split-string lines-text "\r?\n" t))
                              prop)
@@ -456,7 +495,8 @@ blah..blah..blah
                                               (replace-match "" t t str)
                                             str))
                                         (match-string 2 line)))))
-                                lines))))))
+                                lines))
+                      (error "Failed to parse the post, maybe format is wrong.")))))
          ;; get body content
          (body (buffer-substring-no-properties body-start (point-max)))
          (id (assocref "id" props))
