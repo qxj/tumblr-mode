@@ -44,6 +44,7 @@
 
 ;;; Code:
 
+(require 'cl)
 (require 'url)
 (require 'xml)
 
